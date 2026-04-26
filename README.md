@@ -4,8 +4,6 @@ PlatformIO + Arduino firmware for an ESP32-C3 SuperMini that drives two MG90S se
 
 ![The clock — two MG90S servos with arms set up to strike singing bowls](images/servo-driven-bells.jpg)
 
-The hardware behavior (pinout, the wind-up + release strike algorithm, the MQTT topic shapes) was ported verbatim from a working ESP-IDF native-C implementation kept locally outside this repo.
-
 ## Hardware
 
 **MCU**: ESP32-C3 SuperMini (160 MHz single-core RISC-V, 4 MB embedded flash, USB-Serial/JTAG).
@@ -223,12 +221,38 @@ Persistent values live under the `tibetan` Preferences namespace (`config.cpp`):
 
 Values are clamped on load; flash is rewritten only if clamping actually changed a value.
 
-## Possible future work
+## Home Assistant automation example
 
-- OTA (would need a partition-table swap to `min_spiffs.csv` first)
-- Web UI / captive portal for first-boot WiFi provisioning (replaces hardcoded creds)
-- mDNS for `tibetan-clock.local`
-- Per-bell custom timings (release pause, step delay) exposed in HA
+Once the device shows up in HA, you can drive it from automations like any other entity. This one rings Bell A every hour on the hour, but only while the sun is up:
+
+```yaml
+alias: Tibetan clock — hourly chime (daytime only)
+description: Ring Bell A every hour, skip if the sun is down
+triggers:
+  - trigger: time_pattern
+    minutes: 0
+conditions:
+  - condition: state
+    entity_id: sun.sun
+    state: above_horizon
+actions:
+  - action: button.press
+    target:
+      entity_id: button.ring_bell_a
+mode: single
+```
+
+`button.press` sends an empty payload, so the ring uses whatever the `Bell A Intensity` / `Count` sliders are currently set to. To override per-press, publish a JSON body directly:
+
+```yaml
+actions:
+  - action: mqtt.publish
+    data:
+      topic: homeassistant/button/tibetan_clock/ring_bell_a/command
+      payload: '{"intensity": 25, "count": 1}'
+```
+
+The exact entity_id (`button.ring_bell_a` vs `button.tibetan_clock_ring_bell_a`) depends on how HA slugified your device name — check Settings → Devices & Services → Tibetan Clock to confirm.
 
 ## License
 
