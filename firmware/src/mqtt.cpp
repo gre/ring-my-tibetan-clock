@@ -103,6 +103,13 @@ constexpr const char *kStateSwingDown =
 constexpr const char *kCommandSwingDown =
     "homeassistant/number/tibetan_clock/swing_down/set";
 
+constexpr const char *kDiscoveryCycle =
+    "homeassistant/number/tibetan_clock/cycle/config";
+constexpr const char *kStateCycle =
+    "homeassistant/number/tibetan_clock/cycle/state";
+constexpr const char *kCommandCycle =
+    "homeassistant/number/tibetan_clock/cycle/set";
+
 // Old (v1) topics — published empty/retain on connect to clean up HA's stale
 // entities from the previous schema. Drop this list once everyone has flashed.
 constexpr const char *kLegacyDiscovery[] = {
@@ -130,7 +137,7 @@ void addDeviceBlock(JsonDocument &doc) {
   dev["model"] = "ESP32-C3";
 }
 
-void publishUInt(const char *topic, uint8_t v) {
+void publishUInt(const char *topic, unsigned int v) {
   char buf[8];
   int n = snprintf(buf, sizeof(buf), "%u", v);
   g_mqtt.publish(topic, (const uint8_t *)buf, n, true);
@@ -146,17 +153,19 @@ void publishConfigState() {
   publishUInt(kStateCenterB, cfg.center_deg[1]);
   publishUInt(kStateSwingUp, cfg.swing_up_step_ms);
   publishUInt(kStateSwingDown, cfg.swing_down_step_ms);
+  publishUInt(kStateCycle, cfg.cycle_ms);
 }
 
-uint8_t parseUInt(const uint8_t *payload, unsigned int length, uint8_t fallback) {
+unsigned int parseUInt(const uint8_t *payload, unsigned int length,
+                       unsigned int fallback) {
   char buf[8];
   unsigned int copy = length < sizeof(buf) - 1 ? length : sizeof(buf) - 1;
   memcpy(buf, payload, copy);
   buf[copy] = '\0';
-  int v = atoi(buf);
+  long v = atol(buf);
   if (v < 0) return fallback;
-  if (v > 255) return 255;
-  return (uint8_t)v;
+  if (v > 65535) return 65535;
+  return (unsigned int)v;
 }
 
 void onMessage(char *topic, uint8_t *payload, unsigned int length) {
@@ -189,28 +198,28 @@ void onMessage(char *topic, uint8_t *payload, unsigned int length) {
   }
 
   if (strcmp(topic, kCommandIntA) == 0) {
-    uint8_t v = parseUInt(payload, length, configGet().intensity[0]);
+    uint8_t v = (uint8_t)parseUInt(payload, length, configGet().intensity[0]);
     if (configSetIntensity(0, v)) publishUInt(kStateIntA, configGet().intensity[0]);
     return;
   }
   if (strcmp(topic, kCommandIntB) == 0) {
-    uint8_t v = parseUInt(payload, length, configGet().intensity[1]);
+    uint8_t v = (uint8_t)parseUInt(payload, length, configGet().intensity[1]);
     if (configSetIntensity(1, v)) publishUInt(kStateIntB, configGet().intensity[1]);
     return;
   }
   if (strcmp(topic, kCommandCountA) == 0) {
-    uint8_t v = parseUInt(payload, length, configGet().count[0]);
+    uint8_t v = (uint8_t)parseUInt(payload, length, configGet().count[0]);
     if (configSetCount(0, v)) publishUInt(kStateCountA, configGet().count[0]);
     return;
   }
   if (strcmp(topic, kCommandCountB) == 0) {
-    uint8_t v = parseUInt(payload, length, configGet().count[1]);
+    uint8_t v = (uint8_t)parseUInt(payload, length, configGet().count[1]);
     if (configSetCount(1, v)) publishUInt(kStateCountB, configGet().count[1]);
     return;
   }
 
   if (strcmp(topic, kCommandCenterA) == 0) {
-    uint8_t v = parseUInt(payload, length, configGet().center_deg[0]);
+    uint8_t v = (uint8_t)parseUInt(payload, length, configGet().center_deg[0]);
     if (configSetCenterDeg(0, v)) {
       publishUInt(kStateCenterA, configGet().center_deg[0]);
       servoApplyCenterIfPowered(0);
@@ -218,7 +227,7 @@ void onMessage(char *topic, uint8_t *payload, unsigned int length) {
     return;
   }
   if (strcmp(topic, kCommandCenterB) == 0) {
-    uint8_t v = parseUInt(payload, length, configGet().center_deg[1]);
+    uint8_t v = (uint8_t)parseUInt(payload, length, configGet().center_deg[1]);
     if (configSetCenterDeg(1, v)) {
       publishUInt(kStateCenterB, configGet().center_deg[1]);
       servoApplyCenterIfPowered(1);
@@ -233,15 +242,21 @@ void onMessage(char *topic, uint8_t *payload, unsigned int length) {
   }
 
   if (strcmp(topic, kCommandSwingUp) == 0) {
-    uint8_t v = parseUInt(payload, length, configGet().swing_up_step_ms);
+    uint8_t v = (uint8_t)parseUInt(payload, length, configGet().swing_up_step_ms);
     if (configSetSwingUpMs(v))
       publishUInt(kStateSwingUp, configGet().swing_up_step_ms);
     return;
   }
   if (strcmp(topic, kCommandSwingDown) == 0) {
-    uint8_t v = parseUInt(payload, length, configGet().swing_down_step_ms);
+    uint8_t v = (uint8_t)parseUInt(payload, length, configGet().swing_down_step_ms);
     if (configSetSwingDownMs(v))
       publishUInt(kStateSwingDown, configGet().swing_down_step_ms);
+    return;
+  }
+  if (strcmp(topic, kCommandCycle) == 0) {
+    uint16_t v = (uint16_t)parseUInt(payload, length, configGet().cycle_ms);
+    if (configSetCycleMs(v))
+      publishUInt(kStateCycle, configGet().cycle_ms);
     return;
   }
 
@@ -322,11 +337,13 @@ void publishDiscovery() {
                 "tibetan_clock_calibrate", "mdi:tune-vertical");
 
   publishNumber(kDiscoverySwingUp, kCommandSwingUp, kStateSwingUp,
-                "Swing Up Step", "tibetan_clock_swing_up", 0, 20, "ms",
+                "Swing Up Step", "tibetan_clock_swing_up", 0, 30, "ms",
                 "mdi:arrow-up-bold");
   publishNumber(kDiscoverySwingDown, kCommandSwingDown, kStateSwingDown,
-                "Swing Down Step", "tibetan_clock_swing_down", 1, 20, "ms",
+                "Swing Down Step", "tibetan_clock_swing_down", 0, 10, "ms",
                 "mdi:arrow-down-bold");
+  publishNumber(kDiscoveryCycle, kCommandCycle, kStateCycle, "Strike Cycle",
+                "tibetan_clock_cycle", 500, 10000, "ms", "mdi:metronome");
 }
 
 bool tryConnect() {

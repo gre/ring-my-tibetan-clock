@@ -108,8 +108,8 @@ void readSerial() {
 void setup() {
   Serial.begin(115200);
 
-  // C3 USB-Serial/JTAG: give the host a moment to enumerate so the boot banner
-  // isn't swallowed. Cap the wait so a missing host doesn't block boot.
+  // Give the USB host a moment to enumerate so the boot banner isn't
+  // swallowed. Cap the wait so a missing host doesn't block boot.
   uint32_t deadline = millis() + 3000;
   while (!Serial && millis() < deadline) delay(50);
   delay(300);

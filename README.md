@@ -2,7 +2,9 @@
 
 PlatformIO + Arduino firmware for an ESP32-C3 SuperMini that drives two MG90S servos to strike Tibetan singing bowls, controllable from Home Assistant over MQTT.
 
-The hardware behavior (pinout, the strike + smooth-decay algorithm, the MQTT topic shapes) was ported verbatim from a working ESP-IDF native-C implementation kept locally outside this repo.
+![The clock — two MG90S servos with arms set up to strike singing bowls](images/servo-driven-bells.jpg)
+
+The hardware behavior (pinout, the wind-up + release strike algorithm, the MQTT topic shapes) was ported verbatim from a working ESP-IDF native-C implementation kept locally outside this repo.
 
 ## Hardware
 
@@ -13,6 +15,8 @@ The hardware behavior (pinout, the strike + smooth-decay algorithm, the MQTT top
 **Servo power gate**: N-channel MOSFET (or similar) on the servo rail. Gate driven by GPIO 6. **Blue LED** on the board lights when the gate is conducting (hardware indicator, not firmware-controlled).
 
 **Status LEDs**: 2× LEDs (green = success, red = error) directly driven by GPIOs 0 and 1.
+
+![Custom perfboard with the ESP32-C3, MOSFET gate, status LEDs, and pin headers for the two servos](images/custom-perfboard-circuit.jpg)
 
 ### Pinout
 
@@ -71,43 +75,40 @@ firmware/
 
 ### Servo / ring algorithm
 
-For each `ringBell(bell, count, intensity)`:
+The servo arm sits at its per-bell `center` (~90°). A single ring is a **wind-up + release**:
 
-1. **Rail-up** (skipped if rail is already powered from a recent ring). Staggered cold-start: pre-arm only the targeted servo's PWM line at center, energize the MOSFET, wait `RAIL_WARMUP_MS` (1 s) for the cap to charge with a single servo loaded, then pre-arm the other servo. Avoids brownouts caused by both MG90S seeking 90° simultaneously through a charging cap.
+1. **Rail-up** (skipped if rail is already powered from a recent ring). Staggered cold-start: pre-arm only the targeted servo's PWM line at center, energize the MOSFET, wait `RAIL_WARMUP_MS` (1 s) for the cap to charge with a single servo loaded, then pre-arm the other servo. Avoids brownouts caused by both MG90S seeking center simultaneously through a charging cap.
 2. Re-issue the targeted servo at center (in case it drifted between rings), sleep `capacitor_stabilization_ms`.
 3. Repeat `count` times:
-   a. Snap servo to `center + intensity`.
-   b. Hold `release_pause_ms` (the strike dwell — what gives the bowl a chance to sing).
-   c. Step back to center **one degree at a time**, sleeping `step_return_delay_ms` per step (prevents secondary clang on snap-back).
-   d. Pad remaining time to `total_ring_delay_ms`.
-4. Re-center both servos to their per-bell centers (so the un-commanded bell can't drift after brownout pressure during the strike).
+   a. **Wind-up** (Phase A, `swing_up_step_ms` per degree): rotate the arm slowly from `center` to `center + intensity`, *away* from the bowl. The arm is being charged with potential energy.
+   b. Hold `release_pause_ms` (500 ms) at the wind-up position.
+   c. **Release** (Phase B, `swing_down_step_ms` per degree): drive the arm back to `center`. With `swing_down_step_ms = 0` (default), this is an instant snap — the arm whips back through the bowl and rings it.
+   d. Pad remaining time to `cycle_ms` (5 s default) before the next strike.
+4. Re-center both servos to their per-bell centers (the un-commanded bell may drift under brownout pressure during the snap).
 5. **Schedule** a MOSFET-off `RAIL_IDLE_HOLD_MS` (1.5 s) in the future, executed by `servoTick()` from the main loop. If another `ringBell` lands inside that window, the schedule is cancelled and the rail stays up — back-to-back rings share a single power cycle.
 
-Defaults (from `src/servo.h`):
-- `capacitor_stabilization_ms = 222`
-- `release_pause_ms = 500`
-- `step_return_delay_ms = 5`
-- `total_ring_delay_ms = 4000`
-- `intensity = 20` (clamped to 5–50, the angular amplitude in degrees)
-- `center = 90°` per bell, configurable from HA (60–120) for mechanical mounting trim
+> The reference implementation rang the bowl on the *out* swing and used the slow step-back to settle. This port rings on the *back* swing — gentle wind-up, snap release. Both modes are reachable: set `swing_up_step_ms = 0` and `swing_down_step_ms > 0` to flip the strike phase.
 
 ### MQTT / Home Assistant integration
 
-Auto-discovery via the `homeassistant/...` topic prefix. The device exposes **3 buttons + 6 number sliders** (all under one HA device entry "Tibetan Clock"), plus an availability binary sensor. The bell number for ring commands is taken **from the topic, not the payload**.
+Auto-discovery via the `homeassistant/...` topic prefix. The device exposes **3 buttons + 9 number sliders** (all under one HA device entry "Tibetan Clock"), plus an availability binary sensor. The bell number for ring commands is taken **from the topic, not the payload**.
 
 **Entities:**
 
-| HA entity | Component | Range | Section |
-|-----------|-----------|-------|---------|
-| `Ring Bell A` | button | – | Controls |
-| `Ring Bell B` | button | – | Controls |
-| `Calibrate` | button | – | Controls |
-| `Bell A Intensity` | number | 5–50° | Configuration |
-| `Bell B Intensity` | number | 5–50° | Configuration |
-| `Bell A Count` | number | 1–9 | Configuration |
-| `Bell B Count` | number | 1–9 | Configuration |
-| `Bell A Center` | number | 60–120° | Configuration |
-| `Bell B Center` | number | 60–120° | Configuration |
+| HA entity | Component | Range | Default | Section |
+|-----------|-----------|-------|---------|---------|
+| `Ring Bell A` | button | – | – | Controls |
+| `Ring Bell B` | button | – | – | Controls |
+| `Calibrate` | button | – | – | Controls |
+| `Bell A Intensity` | number | 5–50° | 28 | Configuration |
+| `Bell B Intensity` | number | 5–50° | 20 | Configuration |
+| `Bell A Count` | number | 1–9 | 1 | Configuration |
+| `Bell B Count` | number | 1–9 | 3 | Configuration |
+| `Bell A Center` | number | 60–120° | 90 | Configuration |
+| `Bell B Center` | number | 60–120° | 85 | Configuration |
+| `Swing Up Step` | number | 0–30 ms | 20 | Configuration — wind-up speed (ms per degree) |
+| `Swing Down Step` | number | 0–10 ms | 0 | Configuration — release speed (ms per degree). 0 = snap = ring |
+| `Strike Cycle` | number | 500–10000 ms | 5000 | Configuration — total time per strike in a multi-strike ring |
 
 The `Bell X Intensity` / `Count` / `Center` sliders are persisted in NVS and used as defaults when `Ring Bell X` is pressed without a payload (or with HA's default `"PRESS"` body).
 
@@ -127,7 +128,8 @@ Pressing `Ring Bell A` with an explicit JSON payload overrides per-press:
 | `binary_sensor/tibetan_clock/state` | publish | no | `ringing` / `idle` (informational) |
 | `button/tibetan_clock/ring_bell_a/config` + `_b/config` + `calibrate/config` | publish | yes | discovery payloads for the 3 buttons |
 | `button/tibetan_clock/ring_bell_a/command` + `_b/command` + `calibrate/command` | subscribe | – | trigger ring or calibration |
-| `number/tibetan_clock/bell_{a,b}_{intensity,count,center}/{config,state,set}` | bidirectional | state retained | the 6 config sliders |
+| `number/tibetan_clock/bell_{a,b}_{intensity,count,center}/{config,state,set}` | bidirectional | state retained | per-bell config sliders |
+| `number/tibetan_clock/{swing_up,swing_down,cycle}/{config,state,set}` | bidirectional | state retained | global timing sliders |
 
 #### PubSubClient gotchas baked into the code
 
@@ -209,12 +211,15 @@ Centralized through `leds.{h,cpp}` so WiFi and MQTT layers don't fight over them
 
 Persistent values live under the `tibetan` Preferences namespace (`config.cpp`):
 
-| Key | Type | Range | Default |
-|-----|------|-------|---------|
-| `ver` | uint16 | – | schema version (currently 3 — bumping resets all values to defaults) |
-| `int_a` / `int_b` | uint8 | 5–50 | 20 |
-| `cnt_a` / `cnt_b` | uint8 | 1–9 | 1 |
-| `ctr_a` / `ctr_b` | uint8 | 60–120 | 90 |
+| Key | Type | Range | Default (A / B) |
+|-----|------|-------|-----------------|
+| `ver` | uint16 | – | schema version (currently 8 — bumping resets all values to defaults) |
+| `int_a` / `int_b` | uint8 | 5–50° | 28 / 20 |
+| `cnt_a` / `cnt_b` | uint8 | 1–9 | 1 / 3 |
+| `ctr_a` / `ctr_b` | uint8 | 60–120° | 90 / 85 |
+| `sup` | uint8 | 0–30 ms | 20 (wind-up step) |
+| `sdn` | uint8 | 0–10 ms | 0 (release step — snap) |
+| `cyc` | uint16 | 500–10000 ms | 5000 (strike cycle) |
 
 Values are clamped on load; flash is rewritten only if clamping actually changed a value.
 

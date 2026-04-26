@@ -27,10 +27,6 @@
 // Production defaults from reference-implementation config_manager_get_defaults.
 #define DEFAULT_CAPACITOR_STABILIZATION_MS 222
 #define DEFAULT_RELEASE_PAUSE_MS           500
-#define DEFAULT_STEP_RETURN_DELAY_MS       5
-#define DEFAULT_TOTAL_RING_DELAY_MS        4000
-#define DEFAULT_BELL_INTENSITY             20
-#define DEFAULT_BELL_COUNT                 1
 
 // Time the PWM signal runs into a powered-down servo line, just to settle
 // the pulse train at mid before we energize the rail. Without this, the
@@ -49,8 +45,6 @@
 struct ServoTimings {
   uint16_t capacitor_stabilization_ms;
   uint16_t release_pause_ms;
-  uint16_t step_return_delay_ms;
-  uint16_t total_ring_delay_ms;
 };
 
 ServoTimings servoDefaultTimings();

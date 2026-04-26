@@ -47,6 +47,21 @@ void setAngle(uint8_t pin, int32_t angle_deg) {
   setPulseUs(pin, us);
 }
 
+// Walk the servo from `from` to `to` one degree at a time, sleeping
+// `step_ms` between each step. step_ms == 0 is a single-write snap.
+void swingTo(uint8_t pin, int32_t from, int32_t to, uint8_t step_ms) {
+  if (step_ms == 0 || from == to) {
+    setAngle(pin, to);
+    return;
+  }
+  int32_t direction = (to > from) ? 1 : -1;
+  for (int32_t pos = from + direction;; pos += direction) {
+    setAngle(pin, pos);
+    delay(step_ms);
+    if (pos == to) break;
+  }
+}
+
 // Bring the rail up if it isn't already; cancel any pending power-off.
 // Cold-start uses a staggered warmup so we don't brown out the ESP under
 // the combined inrush of two MG90S servos seeking 90° at the same time.
@@ -100,8 +115,6 @@ ServoTimings servoDefaultTimings() {
   return ServoTimings{
       DEFAULT_CAPACITOR_STABILIZATION_MS,
       DEFAULT_RELEASE_PAUSE_MS,
-      DEFAULT_STEP_RETURN_DELAY_MS,
-      DEFAULT_TOTAL_RING_DELAY_MS,
   };
 }
 
@@ -216,33 +229,28 @@ void ringBell(uint8_t bell, uint8_t count, uint8_t intensity,
   setAngle(pin, mid);
   delay(t.capacitor_stabilization_ms);
 
-  const uint8_t swing_up = cfg.swing_up_step_ms;
-  const uint8_t swing_down = cfg.swing_down_step_ms;
+  // "Up"   = wind-up phase (arm rotates AWAY from the bowl, mid -> mid+amp).
+  //          Slow by default — the bell is being "armed" before the release.
+  // "Down" = release phase (arm snaps BACK toward neutral, mid+amp -> mid).
+  //          Snap by default — this is the motion that strikes the bowl.
+  const uint8_t up_step = cfg.swing_up_step_ms;
+  const uint8_t down_step = cfg.swing_down_step_ms;
 
   for (uint8_t strike = 0; strike < count; strike++) {
-    Serial.printf("[ring]   strike %u/%u: %s to %d deg\n", strike + 1, count,
-                  swing_up == 0 ? "snap" : "ramp", (int)(mid + amplitude));
-    if (swing_up == 0) {
-      setAngle(pin, mid + amplitude);
-    } else {
-      for (int32_t step = 1; step <= amplitude; step++) {
-        setAngle(pin, mid + step);
-        delay(swing_up);
-      }
-    }
+    Serial.printf("[ring]   strike %u/%u: wind-up to %d deg\n", strike + 1,
+                  count, (int)(mid + amplitude));
+    swingTo(pin, mid, mid + amplitude, up_step);
     delay(t.release_pause_ms);
 
-    for (int32_t step = 0; step < amplitude; step++) {
-      setAngle(pin, mid + amplitude - step - 1);
-      delay(swing_down);
-    }
-    Serial.printf("[ring]   returned to %d deg\n", (int)mid);
+    Serial.printf("[ring]   release: %s back to %d deg\n",
+                  down_step == 0 ? "snap" : "ramp", (int)mid);
+    swingTo(pin, mid + amplitude, mid, down_step);
 
     if (strike + 1 < count) {
       uint32_t used = (uint32_t)t.release_pause_ms +
-                      (uint32_t)amplitude * (swing_up + swing_down);
-      if (t.total_ring_delay_ms > used) {
-        delay(t.total_ring_delay_ms - used);
+                      (uint32_t)amplitude * (up_step + down_step);
+      if (cfg.cycle_ms > used) {
+        delay(cfg.cycle_ms - used);
       }
     }
   }
