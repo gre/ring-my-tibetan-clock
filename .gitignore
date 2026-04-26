@@ -1,0 +1,23 @@
+# PlatformIO
+firmware/.pio/
+firmware/.vscode/
+
+# Secrets (PlatformIO build_flags injection)
+firmware/private_config.ini
+
+# External impls — not part of this repo, kept locally as reference only
+reference-implementation/
+example-of-another-work/
+
+# Per-project Claude Code rules (kept locally only)
+CLAUDE.md
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+*.swp
+*.swo
+.venv/
+.claude/

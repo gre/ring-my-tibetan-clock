@@ -1,0 +1,18 @@
+; Template for firmware/private_config.ini — copy this file to private_config.ini
+; and fill in the real credentials. private_config.ini is gitignored; this template
+; is committed.
+;
+;   cp firmware/private_config.ini.template firmware/private_config.ini
+;
+; Empty build_flags is fine for M0 (bootstrap) and M1 (servo-only). WiFi/MQTT
+; defines are required from M2 onward.
+
+[private_config]
+build_flags =
+;   -DWIFI_SSID=\"YourSSID\"
+;   -DWIFI_PASSWORD=\"YourPassword\"
+;   -DMQTT_HOST=\"192.168.1.42\"
+;   -DMQTT_PORT=1883
+;   -DMQTT_USER=\"mqtt_user\"
+;   -DMQTT_PASSWORD=\"mqtt_password\"
+;   -DMQTT_CLIENT_ID=\"tibetan_clock_esp32\"
