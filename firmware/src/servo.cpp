@@ -216,21 +216,31 @@ void ringBell(uint8_t bell, uint8_t count, uint8_t intensity,
   setAngle(pin, mid);
   delay(t.capacitor_stabilization_ms);
 
+  const uint8_t swing_up = cfg.swing_up_step_ms;
+  const uint8_t swing_down = cfg.swing_down_step_ms;
+
   for (uint8_t strike = 0; strike < count; strike++) {
-    Serial.printf("[ring]   strike %u/%u: snap to %d deg\n", strike + 1, count,
-                  (int)(mid + amplitude));
-    setAngle(pin, mid + amplitude);
+    Serial.printf("[ring]   strike %u/%u: %s to %d deg\n", strike + 1, count,
+                  swing_up == 0 ? "snap" : "ramp", (int)(mid + amplitude));
+    if (swing_up == 0) {
+      setAngle(pin, mid + amplitude);
+    } else {
+      for (int32_t step = 1; step <= amplitude; step++) {
+        setAngle(pin, mid + step);
+        delay(swing_up);
+      }
+    }
     delay(t.release_pause_ms);
 
     for (int32_t step = 0; step < amplitude; step++) {
       setAngle(pin, mid + amplitude - step - 1);
-      delay(t.step_return_delay_ms);
+      delay(swing_down);
     }
     Serial.printf("[ring]   returned to %d deg\n", (int)mid);
 
     if (strike + 1 < count) {
       uint32_t used = (uint32_t)t.release_pause_ms +
-                      (uint32_t)amplitude * t.step_return_delay_ms;
+                      (uint32_t)amplitude * (swing_up + swing_down);
       if (t.total_ring_delay_ms > used) {
         delay(t.total_ring_delay_ms - used);
       }

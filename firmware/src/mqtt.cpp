@@ -89,6 +89,20 @@ constexpr const char *kDiscoveryCalibrate =
 constexpr const char *kCommandCalibrate =
     "homeassistant/button/tibetan_clock/calibrate/command";
 
+constexpr const char *kDiscoverySwingUp =
+    "homeassistant/number/tibetan_clock/swing_up/config";
+constexpr const char *kStateSwingUp =
+    "homeassistant/number/tibetan_clock/swing_up/state";
+constexpr const char *kCommandSwingUp =
+    "homeassistant/number/tibetan_clock/swing_up/set";
+
+constexpr const char *kDiscoverySwingDown =
+    "homeassistant/number/tibetan_clock/swing_down/config";
+constexpr const char *kStateSwingDown =
+    "homeassistant/number/tibetan_clock/swing_down/state";
+constexpr const char *kCommandSwingDown =
+    "homeassistant/number/tibetan_clock/swing_down/set";
+
 // Old (v1) topics — published empty/retain on connect to clean up HA's stale
 // entities from the previous schema. Drop this list once everyone has flashed.
 constexpr const char *kLegacyDiscovery[] = {
@@ -130,6 +144,8 @@ void publishConfigState() {
   publishUInt(kStateCountB, cfg.count[1]);
   publishUInt(kStateCenterA, cfg.center_deg[0]);
   publishUInt(kStateCenterB, cfg.center_deg[1]);
+  publishUInt(kStateSwingUp, cfg.swing_up_step_ms);
+  publishUInt(kStateSwingDown, cfg.swing_down_step_ms);
 }
 
 uint8_t parseUInt(const uint8_t *payload, unsigned int length, uint8_t fallback) {
@@ -216,6 +232,19 @@ void onMessage(char *topic, uint8_t *payload, unsigned int length) {
     return;
   }
 
+  if (strcmp(topic, kCommandSwingUp) == 0) {
+    uint8_t v = parseUInt(payload, length, configGet().swing_up_step_ms);
+    if (configSetSwingUpMs(v))
+      publishUInt(kStateSwingUp, configGet().swing_up_step_ms);
+    return;
+  }
+  if (strcmp(topic, kCommandSwingDown) == 0) {
+    uint8_t v = parseUInt(payload, length, configGet().swing_down_step_ms);
+    if (configSetSwingDownMs(v))
+      publishUInt(kStateSwingDown, configGet().swing_down_step_ms);
+    return;
+  }
+
   Serial.printf("[mqtt] unhandled topic %s\n", topic);
 }
 
@@ -291,6 +320,13 @@ void publishDiscovery() {
 
   publishButton(kDiscoveryCalibrate, kCommandCalibrate, "Calibrate",
                 "tibetan_clock_calibrate", "mdi:tune-vertical");
+
+  publishNumber(kDiscoverySwingUp, kCommandSwingUp, kStateSwingUp,
+                "Swing Up Step", "tibetan_clock_swing_up", 0, 20, "ms",
+                "mdi:arrow-up-bold");
+  publishNumber(kDiscoverySwingDown, kCommandSwingDown, kStateSwingDown,
+                "Swing Down Step", "tibetan_clock_swing_down", 1, 20, "ms",
+                "mdi:arrow-down-bold");
 }
 
 bool tryConnect() {
@@ -316,6 +352,8 @@ bool tryConnect() {
   g_mqtt.subscribe(kCommandCenterA, 1);
   g_mqtt.subscribe(kCommandCenterB, 1);
   g_mqtt.subscribe(kCommandCalibrate, 1);
+  g_mqtt.subscribe(kCommandSwingUp, 1);
+  g_mqtt.subscribe(kCommandSwingDown, 1);
   purgeLegacyTopics();
   publishDiscovery();
   publishConfigState();
